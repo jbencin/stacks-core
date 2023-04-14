@@ -59,12 +59,23 @@ const MAX_UNINSTANTIATED_ATTACHMENTS_MIN: u32 = 50_000;
 const UNINSTANTIATED_ATTACHMENTS_EXPIRE_AFTER_MIN: u32 = 86_400;
 const UNRESOLVED_ATTACHMENT_INSTANCES_EXPIRE_AFTER_MIN: u32 = 172_800;
 
+/**
+    This struct configures how the Atlas database for attachments behaves.
+    Some important definitions:
+    - **Uninstantiated Attachment**: A file for which we have the contents, but does not yet have a corresponding hash on the blockchain
+    - **Unresolved Attachment**: A file for which a hash exists on the blockchain, but we do not yet have the contents
+*/
 #[derive(Debug, Clone)]
 pub struct AtlasConfig {
     pub contracts: HashSet<QualifiedContractIdentifier>,
+    /// Max size of an attachment, in bytes
     pub attachments_max_size: u32,
+    /// Max number of uninstantiated attachments.
+    /// If exceeded, Atlas will delete the oldest uninstantiated attachments to make room for newer ones
     pub max_uninstantiated_attachments: u32,
+    /// Time (in seconds) before an uninstantiated attachment is deleted
     pub uninstantiated_attachments_expire_after: u32,
+    /// Time (in seconds) before Atlas stops trying to fetch an unresolved attachment
     pub unresolved_attachment_instances_expire_after: u32,
     pub genesis_attachments: Option<Vec<Attachment>>,
 }

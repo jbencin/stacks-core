@@ -649,14 +649,10 @@ impl NakamotoBlockBuilder {
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
-        let mut tenure_cause = None;
-        for tx in txs.iter() {
-            let TransactionPayload::TenureChange(payload) = &tx.payload else {
-                continue;
-            };
-            tenure_cause = Some(payload.cause);
-            break;
-        }
+        let tenure_cause = txs.iter().find_map(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(tc.cause),
+            _ => None,
+        });
 
         let mut miner_tenure_info =
             self.load_tenure_info(&mut chainstate, burn_dbconn, tenure_cause)?;
@@ -711,6 +707,10 @@ impl NakamotoBlockBuilder {
         let size = self.bytes_so_far;
         let cost = self.tenure_finish(tenure_tx);
         Ok((block, size, cost))
+    }
+
+    pub fn get_bytes_so_far(&self) -> u64 {
+        self.bytes_so_far
     }
 }
 

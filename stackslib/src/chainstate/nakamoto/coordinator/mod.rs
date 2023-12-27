@@ -490,6 +490,8 @@ impl<
                 &mut self.chain_state_db,
                 &mut sortdb_handle,
                 self.dispatcher,
+                None,
+                true,
             ) {
                 Ok(receipt_opt) => receipt_opt,
                 Err(ChainstateError::InvalidStacksBlock(msg)) => {

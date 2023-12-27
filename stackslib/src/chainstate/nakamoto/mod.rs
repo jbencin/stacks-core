@@ -1119,6 +1119,16 @@ impl NakamotoBlock {
         }
         return true;
     }
+
+    /// Get the size of `NakamotoBlock` in bytes as encoded by `StacksMessageCodec`
+    /// This operation is expensive because it serializes a block, so try to avoid calling if possible
+    pub fn block_size(&self) -> Result<u64, CodecError> {
+        let mut bytes = vec![];
+        self.consensus_serialize(&mut bytes)?;
+        let size =
+            u64::try_from(bytes.len()).map_err(|e| CodecError::SerializeError(e.to_string()))?;
+        Ok(size)
+    }
 }
 
 impl StacksChainState {
@@ -1266,48 +1276,51 @@ impl NakamotoChainState {
     /// receipt.  Otherwise, it returns Ok(None).
     ///
     /// It returns Err(..) on DB error, or if the child block does not connect to the parent.
-    /// The caller should keep calling this until it gets Ok(None)
+    /// The caller should keep calling this until it gets Ok(None)bs
     pub fn process_next_nakamoto_block<'a, T: BlockEventDispatcher>(
         stacks_chain_state: &mut StacksChainState,
         sort_tx: &mut SortitionHandleTx,
-        dispatcher_opt: Option<&'a T>,
+        dispatcher: Option<&'a T>,
+        block_and_size: Option<(NakamotoBlock, u64)>,
+        commit: bool,
     ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
         let (mut chainstate_tx, clarity_instance) = stacks_chain_state.chainstate_tx_begin()?;
-        let Some((next_ready_block, block_size)) =
+        let bs = if block_and_size.is_some() {
+            block_and_size
+        } else {
             Self::next_ready_nakamoto_block(&chainstate_tx.tx)?
-        else {
+        };
+        let Some((block, block_size)) = bs else {
             // no more blocks
             return Ok(None);
         };
 
-        let block_id = next_ready_block.block_id();
+        let block_id = block.block_id();
 
         // find corresponding snapshot
-        let next_ready_block_snapshot = SortitionDB::get_block_snapshot_consensus(
-            sort_tx,
-            &next_ready_block.header.consensus_hash,
-        )?
-        .expect(&format!(
-            "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash()
-        ));
+        let next_ready_block_snapshot =
+            SortitionDB::get_block_snapshot_consensus(sort_tx, &block.header.consensus_hash)?
+                .expect(&format!(
+                    "CORRUPTION: staging Nakamoto block {}/{} does not correspond to a burn block",
+                    &block.header.consensus_hash,
+                    &block.header.block_hash()
+                ));
 
         debug!("Process staging Nakamoto block";
-               "consensus_hash" => %next_ready_block.header.consensus_hash,
-               "block_hash" => %next_ready_block.header.block_hash(),
+               "consensus_hash" => %block.header.consensus_hash,
+               "block_hash" => %block.header.block_hash(),
                "burn_block_hash" => %next_ready_block_snapshot.burn_header_hash
         );
 
         // find parent header
         let Some(parent_header_info) =
-            Self::get_block_header(&chainstate_tx.tx, &next_ready_block.header.parent_block_id)?
+            Self::get_block_header(&chainstate_tx.tx, &block.header.parent_block_id)?
         else {
             // no parent; cannot process yet
             debug!("Cannot process Nakamoto block: missing parent header";
-                   "consensus_hash" => %next_ready_block.header.consensus_hash,
-                   "block_hash" => %next_ready_block.header.block_hash(),
-                   "parent_block_id" => %next_ready_block.header.parent_block_id
+                   "consensus_hash" => %block.header.consensus_hash,
+                   "block_hash" => %block.header.block_hash(),
+                   "parent_block_id" => %block.header.parent_block_id
             );
             return Ok(None);
         };
@@ -1317,10 +1330,10 @@ impl NakamotoChainState {
             &parent_header_info.consensus_hash,
             &parent_header_info.anchored_header.block_hash(),
         );
-        if parent_block_id != next_ready_block.header.parent_block_id {
+        if parent_block_id != block.header.parent_block_id {
             let msg = "Discontinuous Nakamoto Stacks block";
             warn!("{}", &msg;
-                  "child parent_block_id" => %next_ready_block.header.parent_block_id,
+                  "child parent_block_id" => %block.header.parent_block_id,
                   "expected parent_block_id" => %parent_block_id
             );
             let _ = Self::set_block_orphaned(&chainstate_tx.tx, &block_id);
@@ -1329,7 +1342,7 @@ impl NakamotoChainState {
         }
 
         // find commit and sortition burns if this is a tenure-start block
-        let Ok(new_tenure) = next_ready_block.is_wellformed_tenure_start_block() else {
+        let Ok(new_tenure) = block.is_wellformed_tenure_start_block() else {
             return Err(ChainstateError::InvalidStacksBlock(
                 "Invalid Nakamoto block: invalid tenure change tx(s)".into(),
             ));
@@ -1367,7 +1380,7 @@ impl NakamotoChainState {
                 .try_into()
                 .expect("Failed to downcast u64 to u32"),
             next_ready_block_snapshot.burn_header_timestamp,
-            &next_ready_block,
+            &block,
             block_size,
             commit_burn,
             sortition_burn,
@@ -1376,39 +1389,34 @@ impl NakamotoChainState {
             Err(e) => {
                 test_debug!(
                     "Failed to append {}/{}: {:?}",
-                    &next_ready_block.header.consensus_hash,
-                    &next_ready_block.header.block_hash(),
+                    &block.header.consensus_hash,
+                    &block.header.block_hash(),
                     &e
                 );
-                let _ = Self::set_block_orphaned(&chainstate_tx.tx, &block_id);
-                chainstate_tx.commit()?;
+                if commit {
+                    _ = Self::set_block_orphaned(&chainstate_tx.tx, &block_id);
+                    chainstate_tx.commit()?;
+                }
                 return Err(e);
             }
         };
 
         assert_eq!(
             receipt.header.anchored_header.block_hash(),
-            next_ready_block.header.block_hash()
+            block.header.block_hash()
         );
-        assert_eq!(
-            receipt.header.consensus_hash,
-            next_ready_block.header.consensus_hash
-        );
+        assert_eq!(receipt.header.consensus_hash, block.header.consensus_hash);
 
         // set stacks block accepted
         sort_tx.set_stacks_block_accepted(
-            &next_ready_block.header.consensus_hash,
-            &next_ready_block.header.block_hash(),
-            next_ready_block.header.chain_length,
+            &block.header.consensus_hash,
+            &block.header.block_hash(),
+            block.header.chain_length,
         )?;
 
         // announce the block, if we're connected to an event dispatcher
-        if let Some(dispatcher) = dispatcher_opt {
-            let block_event = (
-                next_ready_block,
-                parent_header_info.anchored_header.block_hash(),
-            )
-                .into();
+        if let Some(dispatcher) = dispatcher {
+            let block_event = (block, parent_header_info.anchored_header.block_hash()).into();
             dispatcher.announce_block(
                 &block_event,
                 &receipt.header.clone(),
@@ -1426,14 +1434,16 @@ impl NakamotoChainState {
             );
         }
 
-        // this will panic if the Clarity commit fails.
-        clarity_commit.commit();
-        chainstate_tx.commit()
-            .unwrap_or_else(|e| {
-                error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
-                       "error" => ?e);
-                panic!()
-            });
+        if commit {
+            // this will panic if the Clarity commit fails.
+            clarity_commit.commit();
+            chainstate_tx.commit()
+                .unwrap_or_else(|e| {
+                    error!("Failed to commit chainstate transaction after committing Clarity block. The chainstate database is now corrupted.";
+                        "error" => ?e);
+                    panic!()
+                });
+        }
 
         Ok(Some(receipt))
     }

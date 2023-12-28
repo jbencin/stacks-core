@@ -32,7 +32,7 @@ use stacks_common::util::retry::BoundReader;
 use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::{BlockValidateResponse, NakamotoBlockProposal};
+use crate::chainstate::nakamoto::miner::BlockValidateResponse;
 use crate::chainstate::nakamoto::NakamotoBlock;
 use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::db::StacksChainState;
@@ -58,7 +58,7 @@ use crate::net::{
 
 #[derive(Clone, Default)]
 pub struct RPCBlockProposalRequestHandler {
-    pub block_proposal: Option<NakamotoBlockProposal>,
+    pub block_proposal: Option<NakamotoBlock>,
 }
 
 impl RPCBlockProposalRequestHandler {
@@ -67,8 +67,8 @@ impl RPCBlockProposalRequestHandler {
     }
 
     /// Decode a bare transaction from the body
-    fn parse_octets(mut body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
-        NakamotoBlockProposal::consensus_deserialize(&mut body).map_err(|e| match e {
+    fn parse_octets(mut body: &[u8]) -> Result<NakamotoBlock, Error> {
+        NakamotoBlock::consensus_deserialize(&mut body).map_err(|e| match e {
             CodecError::DeserializeError(msg) => {
                 Error::DecodeError(format!("Failed to deserialize posted transaction: {msg}"))
             }
@@ -77,7 +77,7 @@ impl RPCBlockProposalRequestHandler {
     }
 
     /// Decode a JSON-encoded transaction
-    fn parse_json(body: &[u8]) -> Result<NakamotoBlockProposal, Error> {
+    fn parse_json(body: &[u8]) -> Result<NakamotoBlock, Error> {
         serde_json::from_slice(body).map_err(|_| Error::DecodeError("Failed to parse body".into()))
     }
 }
@@ -199,10 +199,7 @@ impl HttpResponse for RPCBlockProposalRequestHandler {
 impl StacksHttpRequest {
     /// Make a new post-block request
     #[cfg(test)]
-    pub fn new_post_block_proposal(
-        host: PeerHost,
-        proposal: &NakamotoBlockProposal,
-    ) -> StacksHttpRequest {
+    pub fn new_post_block_proposal(host: PeerHost, proposal: &NakamotoBlock) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "POST".into(),

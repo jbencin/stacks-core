@@ -649,13 +649,10 @@ fn block_proposal_api_endpoint() {
     });
 
     // Apply both miner/stacker signatures
-    let mut sign = |mut p: NakamotoBlockProposal| {
-        p.block
-            .header
-            .sign_miner(&privk)
-            .expect("Miner failed to sign");
-        signer.sign_nakamoto_block(&mut p.block);
-        p
+    let mut sign = |mut b: NakamotoBlock| {
+        b.header.sign_miner(&privk).expect("Miner failed to sign");
+        signer.sign_nakamoto_block(&mut b);
+        b
     };
 
     let block = {
@@ -702,13 +699,6 @@ fn block_proposal_api_endpoint() {
         builder.mine_nakamoto_block(&mut tenure_tx)
     };
 
-    // Construct a valid proposal. Make alterations to this to test failure cases
-    let proposal = NakamotoBlockProposal {
-        block,
-        tenure_start_block: parent_block_id,
-        chain_id: chainstate.chain_id,
-    };
-
     const HTTP_ACCEPTED: u16 = 202;
     const HTTP_BADREQUEST: u16 = 400;
     // TODO: Check error codes?
@@ -721,9 +711,9 @@ fn block_proposal_api_endpoint() {
         (
             "Corrupted (bit flipped after signing)",
             (|| {
-                let mut sp = sign(proposal.clone());
-                sp.block.header.consensus_hash.0[3] ^= 0x07;
-                sp
+                let mut sb = sign(proposal.clone());
+                sb.block.header.consensus_hash.0[3] ^= 0x07;
+                sb
             })(),
             HTTP_BADREQUEST,
         ),
@@ -731,9 +721,9 @@ fn block_proposal_api_endpoint() {
             // FIXME: Why does `NakamotoBlockBuilder` not check this?
             "Invalid `tenure_start_block`",
             (|| {
-                let mut p = proposal.clone();
-                p.tenure_start_block.0[8] ^= 0x55;
-                sign(p)
+                let mut b = proposal.clone();
+                b.tenure_start_block.0[8] ^= 0x55;
+                sign(b)
             })(),
             HTTP_ACCEPTED,
         ),

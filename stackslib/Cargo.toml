@@ -30,6 +30,10 @@ path = "src/clarity_cli_main.rs"
 name = "blockstack-cli"
 path = "src/blockstack_cli.rs"
 
+[[bench]]
+name = "benchmark"
+harness = false
+
 [dependencies]
 rand = "0.7.3"
 rand_chacha = "=0.2.2"
@@ -94,13 +98,20 @@ features = ["std"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
-criterion = "0.3.5"
 stdext = "0.3.1"
 stx-genesis = { path = "../stx-genesis"}
 clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
+# for benchmarks
+criterion = "0.5.1"
+pprof = { version = "0.13", features = [
+  "flamegraph",
+  "protobuf-codec",
+  "criterion",
+  "frame-pointer",
+] }
 
 [features]
 default = []

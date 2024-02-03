@@ -1,4 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+use blockstack_lib::chainstate::stacks::{
+    StacksBlockHeader, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+};
+use blockstack_lib::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::types::StacksEpochId;
 use clarity::vm::analysis::{run_analysis, AnalysisDatabase};
@@ -10,23 +14,56 @@ use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{
     eval_all, CallStack, ClarityVersion, ContractContext, ContractName, Environment, Value,
 };
-use criterion::{criterion_group, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use datastore::{BurnDatastore, Datastore, StacksConstants};
 use pprof::criterion::{Output, PProfProfiler};
 use rand::{thread_rng, Rng};
+use stacks_common::types::chainstate::StacksBlockId;
 
 mod datastore;
 
+/// Scale benchmark by adjusting number of loops
+const SCALE: usize = 1;
+
+/// ### To make a database
+///
+/// ```sh
+/// BITCOIND_TEST=1 cargo test --workspace --bin=stacks-node -- --ignored --nocapture neon_integrations::pox
+/// cp -r /tmp/stacks-node-tests/integrations-neon/../neon/burnchain/sortition .
+/// cp -r /tmp/stacks-node-tests/integrations-neon/../neon/chainstate/vm/clarity .
+/// cp /tmp/stacks-node-tests/integrations-neon/../neon/chainstate/vm/index.sqlite* .
+/// echo "select * from marf_data" | sqlite3 db-3/clarity/marf.sqlite
+/// pick second to last block hash as `READ_TIP``
+/// ```
+///
+/// Or just clone https://github.com/stacks-network/clarity-benchmarking and use the one there (checkout `costs-4` branch)
+const CLARITY_MARF_PATH: &str = "../../clarity-benchmarking/db/epoch2/vm/clarity/";
+
+// Block hash in db (see above instructions)
+pub const READ_TIP: &str = "24d3f81a0bad21b113af437dfc0872824d39cd6ad46d0a79fc80db3bcedbd687"; // epoch2 db
+                                                                                               //pub const READ_TIP: &str = "35c018bc926bb35110b0573c687eea6c988544598141630f9bb5aa76a2490a77"; // epoch3 db
+
 fn read_bench_sequential(c: &mut Criterion) {
+    let miner_tip = StacksBlockHeader::make_index_block_hash(
+        &MINER_BLOCK_CONSENSUS_HASH,
+        &MINER_BLOCK_HEADER_HASH,
+    );
+    let mut marfed_kv = MarfedKV::open(CLARITY_MARF_PATH, Some(&miner_tip), None).unwrap();
+
+    // Set up Clarity Backing Store
+    // NOTE: this StacksBlockId comes from the `block_headers` in the chainstate DB (db/index.sqlite)
+    let read_tip = StacksBlockId::from_hex(READ_TIP).unwrap();
+    let new_tip = StacksBlockId::from([5; 32]);
+    let mut writeable_marf_store = marfed_kv.begin(&read_tip, &new_tip);
+
     let contract_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
         ContractName::from("fold-bench"),
     );
-    let mut datastore = Datastore::new();
     let constants = StacksConstants::default();
     let burn_datastore = BurnDatastore::new(constants);
     let mut clarity_store = MemoryBackingStore::new();
-    let mut conn = ClarityDatabase::new(&mut datastore, &burn_datastore, &burn_datastore);
+    let mut conn = ClarityDatabase::new(&mut writeable_marf_store, &burn_datastore, &burn_datastore);
     conn.begin();
     conn.set_clarity_epoch_version(StacksEpochId::latest());
     conn.commit();
@@ -114,9 +151,9 @@ fn read_bench_sequential(c: &mut Criterion) {
 
         c.bench_function("get_one:sequential", |b| {
             b.iter(|| {
-                for i in 0..1024 {
+                for i in 0..SCALE {
                     let _result = get_one
-                        .execute_apply(&[Value::Int(i)], &mut env)
+                        .execute_apply(&[Value::Int(i as i128)], &mut env)
                         .expect("Function call failed");
                 }
             });
@@ -127,15 +164,26 @@ fn read_bench_sequential(c: &mut Criterion) {
 }
 
 fn read_bench_random(c: &mut Criterion) {
+    let miner_tip = StacksBlockHeader::make_index_block_hash(
+        &MINER_BLOCK_CONSENSUS_HASH,
+        &MINER_BLOCK_HEADER_HASH,
+    );
+    let mut marfed_kv = MarfedKV::open(CLARITY_MARF_PATH, Some(&miner_tip), None).unwrap();
+
+    // Set up Clarity Backing Store
+    // NOTE: this StacksBlockId comes from the `block_headers` in the chainstate DB (db/index.sqlite)
+    let read_tip = StacksBlockId::from_hex(READ_TIP).unwrap();
+    let new_tip = StacksBlockId::from([5; 32]);
+    let mut writeable_marf_store = marfed_kv.begin(&read_tip, &new_tip);
+
     let contract_id = QualifiedContractIdentifier::new(
         StandardPrincipalData::transient(),
         ContractName::from("fold-bench"),
     );
-    let mut datastore = Datastore::new();
     let constants = StacksConstants::default();
     let burn_datastore = BurnDatastore::new(constants);
     let mut clarity_store = MemoryBackingStore::new();
-    let mut conn = ClarityDatabase::new(&mut datastore, &burn_datastore, &burn_datastore);
+    let mut conn = ClarityDatabase::new(&mut writeable_marf_store, &burn_datastore, &burn_datastore);
     conn.begin();
     conn.set_clarity_epoch_version(StacksEpochId::latest());
     conn.commit();
@@ -225,7 +273,7 @@ fn read_bench_random(c: &mut Criterion) {
             let mut rng = thread_rng();
             // Generate a large number of random values up front
             let random_values: Vec<i128> =
-                (0..1024).map(|_| rng.gen_range(0, 8192 * 8192)).collect();
+                (0..SCALE).map(|_| rng.gen_range(0, 8192 * 8192)).collect();
 
             b.iter_batched_ref(
                 || random_values.clone(), // Setup: clone the pre-generated vector (cheap compared to generation)
@@ -244,12 +292,6 @@ fn read_bench_random(c: &mut Criterion) {
     global_context.commit().unwrap();
 }
 
-fn main() {
-    let mut criterion = Criterion::default().configure_from_args();
-    read_bench_sequential(&mut criterion);
-    read_bench_random(&mut criterion);
-}
-
 criterion_group! {
     name = benches;
     config = {
@@ -263,3 +305,5 @@ criterion_group! {
     };
     targets = read_bench_sequential, read_bench_random
 }
+
+criterion_main!(benches);

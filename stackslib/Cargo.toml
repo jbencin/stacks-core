@@ -104,14 +104,19 @@ clarity = { features = ["default", "testing"], path = "../clarity" }
 stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
-# for benchmarks
+# For benchmarks
 criterion = "0.5.1"
-pprof = { version = "0.13", features = [
+cmd_lib = "1.9.3"
+
+# For benchmarks
+[dev-dependencies.pprof]
+version = "0.13"
+features = [
   "flamegraph",
   "protobuf-codec",
   "criterion",
   "frame-pointer",
-] }
+]
 
 [features]
 default = []

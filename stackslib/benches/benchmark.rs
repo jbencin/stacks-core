@@ -1,8 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+use std::fs::File;
+use std::process::{Command, Stdio};
+
 use blockstack_lib::chainstate::stacks::{
     StacksBlockHeader, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
-use blockstack_lib::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use blockstack_lib::clarity_vm::database::marf::MarfedKV;
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::types::StacksEpochId;
 use clarity::vm::analysis::{run_analysis, AnalysisDatabase};
@@ -14,8 +17,9 @@ use clarity::vm::types::{QualifiedContractIdentifier, StandardPrincipalData};
 use clarity::vm::{
     eval_all, CallStack, ClarityVersion, ContractContext, ContractName, Environment, Value,
 };
+use cmd_lib::run_cmd;
 use criterion::{criterion_group, criterion_main, Criterion};
-use datastore::{BurnDatastore, Datastore, StacksConstants};
+use datastore::{BurnDatastore, StacksConstants};
 use pprof::criterion::{Output, PProfProfiler};
 use rand::{thread_rng, Rng};
 use stacks_common::types::chainstate::StacksBlockId;
@@ -42,6 +46,37 @@ const CLARITY_MARF_PATH: &str = "../../clarity-benchmarking/db/epoch2/vm/clarity
 // Block hash in db (see above instructions)
 pub const READ_TIP: &str = "24d3f81a0bad21b113af437dfc0872824d39cd6ad46d0a79fc80db3bcedbd687"; // epoch2 db
                                                                                                //pub const READ_TIP: &str = "35c018bc926bb35110b0573c687eea6c988544598141630f9bb5aa76a2490a77"; // epoch3 db
+
+/// Clear all fs cache
+/// Must be run as root!!!
+fn clear_cache() -> Result<(), &'static str> {
+    let use_run_cmd = true;
+
+    if cfg!(target_os = "linux") {
+        // Run `sync; echo 3 > /proc/sys/vm/drop_caches`
+        if use_run_cmd {
+            run_cmd!(sync; echo 3 > /proc/sys/vm/drop_caches)
+                .map_err(|_| "Failed to execute process")
+        } else {
+            Command::new("sync")
+                .output()
+                .map_err(|_| "Failed to execute process")?;
+
+            let file =
+                File::create("/proc/sys/vm/drop_caches").map_err(|_| "Failed to open file")?;
+
+            Command::new("echo")
+                .arg("3")
+                .stdout(Stdio::from(file))
+                .output()
+                .map_err(|_| "Failed to execute process")?;
+
+            Ok(())
+        }
+    } else {
+        Err("OS not supported")
+    }
+}
 
 fn read_bench_sequential(c: &mut Criterion) {
     let miner_tip = StacksBlockHeader::make_index_block_hash(
@@ -152,6 +187,8 @@ fn read_bench_sequential(c: &mut Criterion) {
 
         env.global_context.commit().expect("Commit failed");
         env.global_context.begin();
+
+        clear_cache().expect("Failed to clear fs cache");
 
         c.bench_function("get_one:sequential", |b| {
             b.iter(|| {
@@ -276,6 +313,8 @@ fn read_bench_random(c: &mut Criterion) {
 
         env.global_context.commit().expect("Commit failed");
         env.global_context.begin();
+
+        clear_cache().expect("Failed to clear fs cache");
 
         c.bench_function("get_one:random", |b| {
             let mut rng = thread_rng();

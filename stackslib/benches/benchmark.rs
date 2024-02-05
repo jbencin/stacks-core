@@ -63,7 +63,8 @@ fn read_bench_sequential(c: &mut Criterion) {
     let constants = StacksConstants::default();
     let burn_datastore = BurnDatastore::new(constants);
     let mut clarity_store = MemoryBackingStore::new();
-    let mut conn = ClarityDatabase::new(&mut writeable_marf_store, &burn_datastore, &burn_datastore);
+    let mut conn =
+        ClarityDatabase::new(&mut writeable_marf_store, &burn_datastore, &burn_datastore);
     conn.begin();
     conn.set_clarity_epoch_version(StacksEpochId::latest());
     conn.commit();
@@ -148,6 +149,9 @@ fn read_bench_sequential(c: &mut Criterion) {
                 .execute_apply(&[list], &mut env)
                 .expect("Function call failed");
         }
+
+        env.global_context.commit().expect("Commit failed");
+        env.global_context.begin();
 
         c.bench_function("get_one:sequential", |b| {
             b.iter(|| {
@@ -183,7 +187,8 @@ fn read_bench_random(c: &mut Criterion) {
     let constants = StacksConstants::default();
     let burn_datastore = BurnDatastore::new(constants);
     let mut clarity_store = MemoryBackingStore::new();
-    let mut conn = ClarityDatabase::new(&mut writeable_marf_store, &burn_datastore, &burn_datastore);
+    let mut conn =
+        ClarityDatabase::new(&mut writeable_marf_store, &burn_datastore, &burn_datastore);
     conn.begin();
     conn.set_clarity_epoch_version(StacksEpochId::latest());
     conn.commit();
@@ -268,6 +273,9 @@ fn read_bench_random(c: &mut Criterion) {
                 .execute_apply(&[list], &mut env)
                 .expect("Function call failed");
         }
+
+        env.global_context.commit().expect("Commit failed");
+        env.global_context.begin();
 
         c.bench_function("get_one:random", |b| {
             let mut rng = thread_rng();

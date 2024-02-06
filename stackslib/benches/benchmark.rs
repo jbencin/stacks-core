@@ -49,9 +49,9 @@ pub const READ_TIP: &str = "24d3f81a0bad21b113af437dfc0872824d39cd6ad46d0a79fc80
 
 /// Clear all fs cache
 /// Must be run as root!!!
-fn clear_cache() -> Result<(), &'static str> {
-    let use_run_cmd = true;
-
+/// Args:
+///  - `use_run_cmd`: Use simpler way to run shell command. Probably slower then `std::process::cmd`
+fn clear_cache(use_run_cmd: bool) -> Result<(), &'static str> {
     if cfg!(target_os = "linux") {
         // Run `sync; echo 3 > /proc/sys/vm/drop_caches`
         if use_run_cmd {
@@ -187,10 +187,12 @@ fn read_bench_sequential(c: &mut Criterion) {
 
         env.global_context.commit().expect("Commit failed");
         env.global_context.begin();
-
-        clear_cache().expect("Failed to clear fs cache");
+        println!("Data committed to ClarityDB");
 
         c.bench_function("get_one:sequential", |b| {
+            clear_cache(true).expect("Failed to clear fs cache");
+            //println!("Cache cleared");
+
             b.iter(|| {
                 for i in 0..SCALE {
                     let _result = get_one
@@ -314,9 +316,10 @@ fn read_bench_random(c: &mut Criterion) {
         env.global_context.commit().expect("Commit failed");
         env.global_context.begin();
 
-        clear_cache().expect("Failed to clear fs cache");
-
         c.bench_function("get_one:random", |b| {
+            clear_cache(true).expect("Failed to clear fs cache");
+            //println!("Cache cleared");
+
             let mut rng = thread_rng();
             // Generate a large number of random values up front
             let random_values: Vec<i128> =

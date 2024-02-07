@@ -29,52 +29,49 @@ mod datastore;
 /// Scale benchmark by adjusting number of loops
 const SCALE: usize = 1;
 
-/// ### To make a database
+/// ### Obtaining a database
+///
+/// Read costs increase with the size of the database.
+/// For meaningful benchmark results, it's best to use the actual mainnet database
+/// This can be downloaded from https://archive.hiro.so/
+const CLARITY_MARF_PATH: &str = "../../../data/mainnet/chainstate/vm/clarity/";
+
+/// ### Finding a block hash
+///
+/// This needs to taken from the above database.
+/// To query the hash of the block we want to use to use, run the following:
 ///
 /// ```sh
-/// BITCOIND_TEST=1 cargo test --workspace --bin=stacks-node -- --ignored --nocapture neon_integrations::pox
-/// cp -r /tmp/stacks-node-tests/integrations-neon/../neon/burnchain/sortition .
-/// cp -r /tmp/stacks-node-tests/integrations-neon/../neon/chainstate/vm/clarity .
-/// cp /tmp/stacks-node-tests/integrations-neon/../neon/chainstate/vm/index.sqlite* .
-/// echo "select * from marf_data" | sqlite3 db-3/clarity/marf.sqlite
+/// echo "select * from marf_data" | sqlite3 chainstate/vm/clarity/marf.sqlite
 /// pick second to last block hash as `READ_TIP``
 /// ```
-///
-/// Or just clone https://github.com/stacks-network/clarity-benchmarking and use the one there (checkout `costs-4` branch)
-const CLARITY_MARF_PATH: &str = "../../clarity-benchmarking/db/epoch2/vm/clarity/";
+pub const READ_TIP: &str = "4bd4ccea6502d816d37770e532325264f3691de93a2bd361f11f7bbec161cb12";
 
-// Block hash in db (see above instructions)
-pub const READ_TIP: &str = "24d3f81a0bad21b113af437dfc0872824d39cd6ad46d0a79fc80db3bcedbd687"; // epoch2 db
-                                                                                               //pub const READ_TIP: &str = "35c018bc926bb35110b0573c687eea6c988544598141630f9bb5aa76a2490a77"; // epoch3 db
-
-/// Clear all fs cache
+/// Clear all fs cache.
 /// Must be run as root!!!
+/// Can use `sudo -E cargo bench` to do this
+///
 /// Args:
 ///  - `use_run_cmd`: Use simpler way to run shell command. Probably slower then `std::process::cmd`
+#[cfg(target_os = "linux")]
 fn clear_cache(use_run_cmd: bool) -> Result<(), &'static str> {
-    if cfg!(target_os = "linux") {
-        // Run `sync; echo 3 > /proc/sys/vm/drop_caches`
-        if use_run_cmd {
-            run_cmd!(sync; echo 3 > /proc/sys/vm/drop_caches)
-                .map_err(|_| "Failed to execute process")
-        } else {
-            Command::new("sync")
-                .output()
-                .map_err(|_| "Failed to execute process")?;
-
-            let file =
-                File::create("/proc/sys/vm/drop_caches").map_err(|_| "Failed to open file")?;
-
-            Command::new("echo")
-                .arg("3")
-                .stdout(Stdio::from(file))
-                .output()
-                .map_err(|_| "Failed to execute process")?;
-
-            Ok(())
-        }
+    // Run `sync; echo 3 > /proc/sys/vm/drop_caches`
+    if use_run_cmd {
+        run_cmd!(sync; echo 3 > /proc/sys/vm/drop_caches).map_err(|_| "Failed to execute process")
     } else {
-        Err("OS not supported")
+        Command::new("sync")
+            .output()
+            .map_err(|_| "Failed to execute process")?;
+
+        let file = File::create("/proc/sys/vm/drop_caches").map_err(|_| "Failed to open file")?;
+
+        Command::new("echo")
+            .arg("3")
+            .stdout(Stdio::from(file))
+            .output()
+            .map_err(|_| "Failed to execute process")?;
+
+        Ok(())
     }
 }
 
@@ -189,8 +186,11 @@ fn read_bench_sequential(c: &mut Criterion) {
         env.global_context.begin();
         println!("Data committed to ClarityDB");
 
+        clear_cache(true).expect("Failed to clear fs cache");
+        println!("Cache cleared");
+
         c.bench_function("get_one:sequential", |b| {
-            clear_cache(true).expect("Failed to clear fs cache");
+            //clear_cache(true).expect("Failed to clear fs cache");
             //println!("Cache cleared");
 
             b.iter(|| {
@@ -316,8 +316,11 @@ fn read_bench_random(c: &mut Criterion) {
         env.global_context.commit().expect("Commit failed");
         env.global_context.begin();
 
+        clear_cache(true).expect("Failed to clear fs cache");
+        println!("Cache cleared");
+
         c.bench_function("get_one:random", |b| {
-            clear_cache(true).expect("Failed to clear fs cache");
+            //clear_cache(true).expect("Failed to clear fs cache");
             //println!("Cache cleared");
 
             let mut rng = thread_rng();

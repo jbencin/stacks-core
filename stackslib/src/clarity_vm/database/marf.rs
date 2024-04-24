@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Instant;
 
 use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::database::{
@@ -396,7 +397,10 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
     }
 
     fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
-        self.marf
+        let now = Instant::now();
+
+        let res = self
+            .marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
                 Error::NotFoundError => Ok(None),
@@ -414,12 +418,20 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                     })?;
                 Ok((data, proof.serialize_to_vec()))
             })
-            .transpose()
+            .transpose();
+
+        let time = now.elapsed().as_nanos();
+        println!("ReadOnlyMarfStore::get_data_with_proof(),{time},{key}");
+
+        res
     }
 
     fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
-        self.marf
+
+        let now = Instant::now();
+        let res = self
+            .marf
             .get(&self.chain_tip, key)
             .or_else(|e| match e {
                 Error::NotFoundError => {
@@ -444,7 +456,12 @@ impl<'a> ClarityBackingStore for ReadOnlyMarfStore<'a> {
                     .into()
                 })
             })
-            .transpose()
+            .transpose();
+
+        let time = now.elapsed().as_nanos();
+        println!("ReadOnlyMarfStore::get_data(),{time},{key}");
+
+        res
     }
 
     fn put_all_data(&mut self, _items: Vec<(String, String)>) -> InterpreterResult<()> {
@@ -565,7 +582,10 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
 
     fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
-        self.marf
+
+        let now = Instant::now();
+        let res = self
+            .marf
             .get(&self.chain_tip, key)
             .or_else(|e| match e {
                 Error::NotFoundError => {
@@ -590,11 +610,18 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                     .into()
                 })
             })
-            .transpose()
+            .transpose();
+
+        let time = now.elapsed().as_nanos();
+        println!("WritableMarfStore::get_data(),{time},{key}");
+
+        res
     }
 
     fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
-        self.marf
+        let now = Instant::now();
+        let res = self
+            .marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
                 Error::NotFoundError => Ok(None),
@@ -612,7 +639,12 @@ impl<'a> ClarityBackingStore for WritableMarfStore<'a> {
                     })?;
                 Ok((data, proof.serialize_to_vec()))
             })
-            .transpose()
+            .transpose();
+
+        let time = now.elapsed().as_nanos();
+        println!("WritableMarfStore::get_data_with_proof(),{time},{key}");
+
+        res
     }
 
     fn get_side_store(&mut self) -> &Connection {

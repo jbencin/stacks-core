@@ -17,6 +17,7 @@
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
 use std::path::PathBuf;
+use std::time::Instant;
 use std::{error, fmt, fs, io};
 
 use rusqlite::{Connection, Transaction};
@@ -1102,7 +1103,7 @@ impl<T: MarfTrieId> MARF<T> {
     /// Instantiate the MARF from a TrieFileStorage instance
     pub fn from_storage(storage: TrieFileStorage<T>) -> MARF<T> {
         MARF {
-            storage: storage,
+            storage,
             open_chain_tip: None,
         }
     }
@@ -1128,6 +1129,7 @@ impl<T: MarfTrieId> MARF<T> {
         block_hash: &T,
         key: &str,
     ) -> Result<Option<MARFValue>, Error> {
+        let now = Instant::now();
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
 
         let path = TriePath::from_key(key);
@@ -1149,7 +1151,12 @@ impl<T: MarfTrieId> MARF<T> {
                 e
             })?;
 
-        result.map(|option_result| option_result.map(|leaf| leaf.data))
+        let res = result.map(|option_result| option_result.map(|leaf| leaf.data));
+
+        let time = now.elapsed().as_nanos();
+        println!("MARF::get_by_key(),{time},{key}");
+
+        res
     }
 
     pub fn get_block_height_miner_tip(

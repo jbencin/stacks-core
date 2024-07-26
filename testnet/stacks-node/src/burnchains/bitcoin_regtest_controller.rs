@@ -1715,6 +1715,7 @@ impl BitcoinRegtestController {
                 spent_in_outputs + min_tx_size * fee_rate + estimated_rbf,
                 &mut utxos_cloned,
                 signer,
+                true,
             );
             let serialized_tx = SerializedTx::new(tx_cloned);
             cmp::max(min_tx_size, serialized_tx.bytes.len() as u64)
@@ -1731,6 +1732,7 @@ impl BitcoinRegtestController {
             spent_in_outputs + tx_size * fee_rate + rbf_fee,
             utxos_set,
             signer,
+            true,
         );
         signer.dispose();
         Some(())
@@ -1747,9 +1749,16 @@ impl BitcoinRegtestController {
         total_to_spend: u64,
         utxos_set: &mut UTXOSet,
         signer: &mut BurnchainOpSigner,
+        force_change_output: bool,
     ) -> bool {
         let mut public_key = signer.get_public_key();
         let mut total_consumed = 0;
+
+        let total_to_send = if force_change_output {
+            total_to_spend + DUST_UTXO_LIMIT
+        } else {
+            total_to_spend
+        };
 
         // select UTXOs until we have enough to cover the cost
         let mut available_utxos = vec![];
@@ -1758,7 +1767,7 @@ impl BitcoinRegtestController {
             total_consumed += utxo.amount;
             utxos_set.utxos.push(utxo);
 
-            if total_consumed >= total_to_spend {
+            if total_consumed >= total_to_send {
                 break;
             }
         }

@@ -1077,15 +1077,6 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_current_burnchain_block_height(&mut self) -> Result<u32> {
         let epoch = self.get_clarity_epoch_version()?;
         match epoch {
-            // Special case to preserve possibly incorrect behavior (inside at-block) in Epoch 3.0
-            StacksEpochId::Epoch30 => {
-                self.burn_state_db
-                    .get_tip_burn_block_height()
-                    .ok_or_else(|| {
-                        InterpreterError::Expect("Failed to get burnchain tip height.".into())
-                            .into()
-                    })
-            }
             _ => {
                 let cur_stacks_height = self.store.get_current_block_height();
 
